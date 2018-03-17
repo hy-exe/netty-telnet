@@ -1,12 +1,24 @@
 package com.netty.telnet;
 
 import java.net.InetSocketAddress;
-import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-import org.jboss.netty.bootstrap.ClientBootstrap;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelFuture;
-import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
+import io.netty.bootstrap.Bootstrap;
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelOption;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.DelimiterBasedFrameDecoder;
+import io.netty.handler.codec.Delimiters;
+import io.netty.handler.codec.string.StringDecoder;
+import io.netty.handler.codec.string.StringEncoder;
 
 /**
  * @author yin.huang
@@ -14,50 +26,76 @@ import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
  */
 public class TelnetClient {
 
-  ClientBootstrap bootstrap = null;
+	EventLoopGroup workGroup = null;
 
-  ChannelFuture   future    = null;
+	Bootstrap bootstrap = null;
 
-  public TelnetClient(String ip, int port) {
-    // Client服务启动器
-    bootstrap = new ClientBootstrap(new NioClientSocketChannelFactory(Executors.newCachedThreadPool(), Executors.newCachedThreadPool()));
-    // 设置一个处理服务端消息和各种消息事件的类(Handler)
-    bootstrap.setPipelineFactory(new TelnetClientPipelineFactory());
-    // 连接
-    future = bootstrap.connect(new InetSocketAddress(ip, port));
-  }
+	ChannelFuture future = null;
 
-  public void telnet(String command) {
-    Channel channel = future.awaitUninterruptibly().getChannel();
-    if (!future.isSuccess()) {
-      future.getCause().printStackTrace();
-      bootstrap.releaseExternalResources();
-      return;
-    }
+	public TelnetClient(String ip, int port) {
+		// Client服务启动器
+		workGroup = new NioEventLoopGroup();
+		bootstrap = new Bootstrap();
+		bootstrap.group(workGroup);
+		bootstrap.channel(NioSocketChannel.class);
+		// 设置一个处理服务端消息和各种消息事件的类(Handler)
+		bootstrap.handler(new ChannelInitializer<SocketChannel>() {
 
-    ChannelFuture lastWriteFuture = null;
+			@Override
+			protected void initChannel(SocketChannel ch) throws Exception {
+				// 以\n为结束分隔符
+				ch.pipeline().addLast("framer", new DelimiterBasedFrameDecoder(8192, Delimiters.lineDelimiter()));
 
-    lastWriteFuture = channel.write(command + System.getProperty("line.separator", "/n"));
+				ch.pipeline().addLast("decoder", new StringDecoder());
+				ch.pipeline().addLast("encoder", new StringEncoder());
 
-    // 退出命令
-    if (command.toLowerCase().equals("bye")) {
-      channel.getCloseFuture().awaitUninterruptibly();
+				ch.pipeline().addLast("handler", new TelnetClientHandler());
+			}
+		});
+		bootstrap.option(ChannelOption.SO_KEEPALIVE, false); //短连接
+		// 连接
+		future = bootstrap.connect(new InetSocketAddress(ip, port));
+	}
 
-      if (lastWriteFuture != null) {
-        lastWriteFuture.awaitUninterruptibly();
-      }
+	public void telnet(String command) {
+		Channel channel = future.channel();
+		if (!future.isSuccess()) {
+			future.cause().printStackTrace();
+			workGroup.shutdownGracefully();
+			return;
+		}
 
-      channel.close().awaitUninterruptibly();
+		ChannelFuture lastWriteFuture = null;
 
-      bootstrap.releaseExternalResources();
-    }
-  }
+		lastWriteFuture = channel.write(command + System.getProperty("line.separator", "/n"));
 
-  public static void main(String[] args) {
+		// 退出命令
+		if (command.toLowerCase().equals("bye")) {
+			channel.closeFuture().awaitUninterruptibly();
 
-    TelnetClient telnetClient = new TelnetClient("192.168.1.200", 11211);
-    telnetClient.telnet("flush_all");
+			if (lastWriteFuture != null) {
+				lastWriteFuture.awaitUninterruptibly();
+			}
 
-  }
+			channel.close().awaitUninterruptibly();
+
+			workGroup.shutdownGracefully();
+		}
+	}
+
+	public static void main(String[] args) {
+
+		// TelnetClient telnetClient = new TelnetClient("127.0.0.1", 11211);
+		// telnetClient.telnet("flush_all");
+		String a = "hgebcijedg";
+		String b = "gdejicbegh";
+		System.out.println(a.hashCode() == b.hashCode());
+
+		Map<String, Object> map = new HashMap<String, Object>();
+		map.put("1", 1);
+
+		List<String> list = new ArrayList<String>();
+		list.add("1");
+	}
 
 }
